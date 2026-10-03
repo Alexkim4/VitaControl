@@ -10,22 +10,20 @@
 #include "controllers/xbox_one_controller_2016.h"
 #include "controllers/switch_pro_controller.h"
 #include "controllers/eightbitdo_controller.h"
+#include "debuglog.h"
 
 inline void* operator new(std::size_t, void* __p) throw() { return __p; }
 
 #define DECL_CONTROLLER(vid, pid, name) \
-    case ((vid) << 16) | (pid): return new(Mempool::alloc(sizeof(name))) name(mac0, mac1, port)
+    case ((vid) << 16) | (pid): \
+        DebugLog::logConnect(id[0], id[1], #name); \
+        return new(Mempool::alloc(sizeof(name))) name(mac0, mac1, port)
 
 Controller *Controller::makeController(uint32_t mac0, uint32_t mac1, int port)
 {
     // Get the VID and PID of the device with the given MAC address
     uint16_t id[2];
     ksceBtGetVidPid(mac0, mac1, id);
-    // 8BitDo D-mode (VID: 0x2DC8) 인식 추가
-    if (id[0] == 0x2DC8)
-    {
-        return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
-    }
 
     // Match the VID and PID to a controller type, and create one if it exists
     switch ((id[0] << 16) | id[1])
@@ -43,7 +41,10 @@ Controller *Controller::makeController(uint32_t mac0, uint32_t mac1, int port)
         DECL_CONTROLLER(0x057E, 0x2009, SwitchProController);
     }
 
-    return nullptr;
+    // 8BitDo (VID 0x2DC8) and any other unrecognised device: use the 8BitDo driver.
+    // Unknown devices are included for diagnostics so their raw reports get logged.
+    DebugLog::logConnect(id[0], id[1], (id[0] == 0x2DC8) ? "EightBitDo" : "EightBitDo(fallback)");
+    return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
 }
 
 void Controller::requestReport(uint8_t type, uint8_t *buffer, size_t length)

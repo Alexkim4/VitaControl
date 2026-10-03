@@ -1,5 +1,7 @@
+#include <cstring>
 #include <psp2kern/ctrl.h>
 #include "eightbitdo_controller.h"
+#include "../debuglog.h"
 
 static inline uint8_t filterDeadzone(uint8_t val)
 {
@@ -17,6 +19,14 @@ EightBitDoController::EightBitDoController(uint32_t mac0, uint32_t mac1, int por
 
 void EightBitDoController::processReport(uint8_t *buffer, size_t length)
 {
+    // [진단] 이전과 다른 리포트만 앞 20바이트를 로그에 기록 (ur0:data/vitacontrol_log.txt)
+    static uint8_t lastLogged[20] = {};
+    if (memcmp(lastLogged, buffer, sizeof(lastLogged)) != 0)
+    {
+        memcpy(lastLogged, buffer, sizeof(lastLogged));
+        DebugLog::logReport(buffer, sizeof(lastLogged));
+    }
+
     // 0x01 기본 입력 리포트가 아니거나 길이가 부족하면 무시 (버튼 상태 유지)
     if (buffer[0] != 0x01 || length < 10)
         return;
