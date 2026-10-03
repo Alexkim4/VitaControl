@@ -1,0 +1,25 @@
+name: Build VitaControl
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull VitaSDK Docker image
+        run: docker pull vitasdk/vitasdk:latest
+
+      - name: Build with CMake inside Docker
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work vitasdk/vitasdk:latest bash -c "
+            cmake -B build -S . &&
+            cmake --build build"

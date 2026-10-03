@@ -1,77 +1,84 @@
-#include <psp2kern/ctrl.h>
+#include <cstring>
+#include <psp2kern/bt.h>
+
+#include "controller.h"
+#include "mempool.h"
+#include "controllers/dualshock3_controller.h"
+#include "controllers/dualshock4_controller.h"
+#include "controllers/dualsense_controller.h"
+#include "controllers/xbox_one_controller.h"
+#include "controllers/xbox_one_controller_2016.h"
+#include "controllers/switch_pro_controller.h"
 #include "controllers/eightbitdo_controller.h"
 
-static inline uint8_t filterDeadzone(uint8_t val)
+inline void* operator new(std::size_t, void* __p) throw() { return __p; }
+
+#define DECL_CONTROLLER(vid, pid, name) \
+    case ((vid) << 16) | (pid): return new(Mempool::alloc(sizeof(name))) name(mac0, mac1, port)
+
+Controller *Controller::makeController(uint32_t mac0, uint32_t mac1, int port)
 {
-    if (val >= 118 && val <= 138)
-        return 128;
-    return val;
-}
-
-EightBitDoController::EightBitDoController(uint32_t mac0, uint32_t mac1, int port): Controller(mac0, mac1, port)
-{
-    // Send an initial empty write request to prompt 8BitDo controller to stream input reports
-    static uint8_t report[4] = {};
-    requestReport(HID_REQUEST_WRITE, report, sizeof(report));
-}
-
-void EightBitDoController::processReport(uint8_t *buffer, size_t length)
-{
-    // 0x01 기본 입력 리포트가 아니거나 길이가 부족하면 무시 (버튼 상태 유지)
-    if (buffer[0] != 0x01 || length < 10)
-        return;
-
-    // 정상 입력 패킷에 대해서만 버튼 초기화
-    controlData.buttons = 0;
-
-    uint8_t dpad     = buffer[1] & 0x0F;
-    uint8_t leftX    = filterDeadzone(buffer[2]);
-    uint8_t leftY    = filterDeadzone(buffer[3]);
-    uint8_t rightX   = filterDeadzone(buffer[4]);
-    uint8_t rightY   = filterDeadzone(buffer[5]);
-    uint8_t triggerR = buffer[6];
-    uint8_t triggerL = buffer[7];
-    uint8_t btn1     = buffer[8];
-    uint8_t btn2     = buffer[9];
-
-    // D-Pad Hat Switch (0=상, 1=우상, 2=우, 3=우하, 4=하, 5=좌하, 6=좌, 7=좌상, 8=중립)
-    if (dpad == 7 || dpad == 0 || dpad == 1) controlData.buttons |= SCE_CTRL_UP;
-    if (dpad == 1 || dpad == 2 || dpad == 3) controlData.buttons |= SCE_CTRL_RIGHT;
-    if (dpad == 3 || dpad == 4 || dpad == 5) controlData.buttons |= SCE_CTRL_DOWN;
-    if (dpad == 5 || dpad == 6 || dpad == 7) controlData.buttons |= SCE_CTRL_LEFT;
-
-    // 전면 버튼 (8BitDo D-Input / SDL 표준 물리 배치에 맞춤)
-    if (btn1 & 0x01) controlData.buttons |= SCE_CTRL_CIRCLE;    // 물리 우측 (A) -> Circle (○)
-    if (btn1 & 0x02) controlData.buttons |= SCE_CTRL_CROSS;     // 물리 하단 (B) -> Cross (✕)
-    if (btn1 & 0x08) controlData.buttons |= SCE_CTRL_TRIANGLE;  // 물리 상단 (X) -> Triangle (△)
-    if (btn1 & 0x10) controlData.buttons |= SCE_CTRL_SQUARE;    // 물리 좌측 (Y) -> Square (□)
-
-    // 범퍼 (L1 / R1)
-    if (btn1 & 0x40) controlData.buttons |= SCE_CTRL_L1;
-    if (btn1 & 0x80) controlData.buttons |= SCE_CTRL_R1;
-
-    // 트리거 (디지털 비트 및 아날로그 트리거 모두 지원)
-    if ((btn2 & 0x01) || triggerL > 30) controlData.buttons |= SCE_CTRL_LTRIGGER;
-    if ((btn2 & 0x02) || triggerR > 30) controlData.buttons |= SCE_CTRL_RTRIGGER;
-
-    // 시스템 버튼 및 스틱 클릭 (L3 / R3)
-    if (btn2 & 0x04) controlData.buttons |= SCE_CTRL_SELECT;
-    if (btn2 & 0x08) controlData.buttons |= SCE_CTRL_START;
-    if (btn2 & 0x10) controlData.buttons |= SCE_CTRL_PSBUTTON;
-    if (btn2 & 0x20) controlData.buttons |= SCE_CTRL_L3;
-    if (btn2 & 0x40) controlData.buttons |= SCE_CTRL_R3;
-
-    // 아날로그 스틱 (128 중립 필터 적용)
-    controlData.leftX  = leftX;
-    controlData.leftY  = leftY;
-    controlData.rightX = rightX;
-    controlData.rightY = rightY;
-
-    // 배터리 잔량 보고 (14번째 바이트)
-    if (length >= 15)
+    // Get the VID and PID of the device with the given MAC address
+    uint16_t id[2];
+    ksceBtGetVidPid(mac0, mac1, id);
+    // 8BitDo D-mode (VID: 0x2DC8) 인식 추가
+    if (id[0] == 0x2DC8)
     {
-        uint8_t batt = buffer[14] & 0x7F;
-        if (batt > 0 && batt <= 100)
-            batteryLevel = (batt * 5) / 100;
+        return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
     }
+
+    // Match the VID and PID to a controller type, and create one if it exists
+    switch ((id[0] << 16) | id[1])
+    {
+        DECL_CONTROLLER(0x054C, 0x0268, DualShock3Controller);
+        DECL_CONTROLLER(0x054C, 0x05C4, DualShock4Controller);
+        DECL_CONTROLLER(0x054C, 0x09CC, DualShock4Controller);
+        DECL_CONTROLLER(0x054C, 0x0CE6, DualSenseController);
+        DECL_CONTROLLER(0x054C, 0x0DF2, DualSenseController);
+        DECL_CONTROLLER(0x045E, 0x02E0, XboxOneController2016);
+        DECL_CONTROLLER(0x045E, 0x02FD, XboxOneController);
+        DECL_CONTROLLER(0x045E, 0x0B00, XboxOneController);
+        DECL_CONTROLLER(0x045E, 0x0B05, XboxOneController);
+        DECL_CONTROLLER(0x045E, 0x0B0A, XboxOneController);
+        DECL_CONTROLLER(0x057E, 0x2009, SwitchProController);
+    }
+
+    return nullptr;
+}
+
+void Controller::requestReport(uint8_t type, uint8_t *buffer, size_t length)
+{
+    static SceBtHidRequest request;
+    memset(&request, 0, sizeof(SceBtHidRequest));
+
+    // Clear the buffer for read requests
+    if (type == HID_REQUEST_READ)
+        memset(buffer, 0, length);
+
+    // Build a report request
+    request.type   = type;
+    request.buffer = buffer;
+    request.length = length;
+    request.next   = &request;
+
+    // Send the request to the controller
+    ksceBtHidTransfer(mac0, mac1, &request);
+}
+
+uint32_t Controller::calculateCrc(uint8_t *buffer, size_t length)
+{
+    // Calculate the CRC of the given data (used in requests for some controllers)
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++)
+    {
+        uint8_t ch = buffer[i];
+        for (size_t j = 0; j < 8; j++)
+        {
+            uint32_t b = (ch ^ crc) & 1;
+            crc >>= 1;
+            if (b) crc = crc ^ 0xEDB88320;
+            ch >>= 1;
+        }
+    }
+    return ~crc;
 }
