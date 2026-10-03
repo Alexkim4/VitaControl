@@ -68,7 +68,7 @@ struct MotionState
 class Controller
 {
     public:
-        Controller(uint32_t mac0, uint32_t mac1, int port): mac0(mac0), mac1(mac1) {}
+        Controller(uint32_t mac0, uint32_t mac1, int port): mac0(mac0), mac1(mac1), port(port) {}
 
         static Controller *makeController(uint32_t mac0, uint32_t mac1, int port);
 
@@ -93,6 +93,7 @@ class Controller
 
     private:
         uint32_t mac0, mac1;
+        int port;
 };
 
 #endif // CONTROLLER_H

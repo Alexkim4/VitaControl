@@ -41,15 +41,22 @@ Controller *Controller::makeController(uint32_t mac0, uint32_t mac1, int port)
         DECL_CONTROLLER(0x057E, 0x2009, SwitchProController);
     }
 
-    // 8BitDo (VID 0x2DC8) and any other unrecognised device: use the 8BitDo driver.
-    // Unknown devices are included for diagnostics so their raw reports get logged.
-    DebugLog::logConnect(id[0], id[1], (id[0] == 0x2DC8) ? "EightBitDo" : "EightBitDo(fallback)");
-    return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
+    // 8BitDo controllers (VID 0x2DC8) in D-mode, e.g. Pro 3 (PID 0x6009)
+    if (id[0] == 0x2DC8)
+    {
+        DebugLog::logConnect(id[0], id[1], "EightBitDo");
+        return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
+    }
+
+    DebugLog::logConnect(id[0], id[1], "unsupported");
+    return nullptr;
 }
 
 void Controller::requestReport(uint8_t type, uint8_t *buffer, size_t length)
 {
-    static SceBtHidRequest request;
+    // One request slot per controller port, so simultaneous controllers don't clobber each other
+    static SceBtHidRequest requests[4];
+    SceBtHidRequest &request = requests[(port >= 0 && port < 4) ? port : 0];
     memset(&request, 0, sizeof(SceBtHidRequest));
 
     // Clear the buffer for read requests

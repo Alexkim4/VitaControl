@@ -1,7 +1,17 @@
-#include <cstring>
 #include <psp2kern/ctrl.h>
 #include "eightbitdo_controller.h"
-#include "../debuglog.h"
+
+// 8BitDo Pro 3 (VID 0x2DC8, PID 0x6009) D-mode Bluetooth input report, verified from on-device logs:
+//
+//   [0]  0x04  report ID
+//   [1]  D-pad hat (0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW, 0x0F=neutral)
+//   [2]  left stick X    [3] left stick Y   (0x80 center, 0x00 = left/up)
+//   [4]  right stick X   [5] right stick Y
+//   [6]  R2 analog       [7] L2 analog
+//   [8]  0x01 East(○)  0x02 South(✕)  0x08 North(△)  0x10 West(□)  0x40 L1  0x80 R1
+//   [9]  0x01 L2  0x02 R2  0x04 Select  0x08 Start  0x10 Home  0x20 L3  0x40 R3
+
+#define EIGHTBITDO_REPORT_ID 0x04
 
 static inline uint8_t filterDeadzone(uint8_t val)
 {
@@ -12,76 +22,51 @@ static inline uint8_t filterDeadzone(uint8_t val)
 
 EightBitDoController::EightBitDoController(uint32_t mac0, uint32_t mac1, int port): Controller(mac0, mac1, port)
 {
-    // Send an initial empty write request to prompt 8BitDo controller to stream input reports
+    // Send an empty write request just to receive a response, which kicks off the read loop
     static uint8_t report[4] = {};
     requestReport(HID_REQUEST_WRITE, report, sizeof(report));
 }
 
 void EightBitDoController::processReport(uint8_t *buffer, size_t length)
 {
-    // [진단] 이전과 다른 리포트만 앞 20바이트를 로그에 기록 (ur0:data/vitacontrol_log.txt)
-    static uint8_t lastLogged[20] = {};
-    if (memcmp(lastLogged, buffer, sizeof(lastLogged)) != 0)
-    {
-        memcpy(lastLogged, buffer, sizeof(lastLogged));
-        DebugLog::logReport(buffer, sizeof(lastLogged));
-    }
-
-    // 0x01 기본 입력 리포트가 아니거나 길이가 부족하면 무시 (버튼 상태 유지)
-    if (buffer[0] != 0x01 || length < 10)
+    // Only process input reports; anything else keeps the previous state
+    if (buffer[0] != EIGHTBITDO_REPORT_ID || length < 10)
         return;
 
-    // 정상 입력 패킷에 대해서만 버튼 초기화
     controlData.buttons = 0;
 
-    uint8_t dpad     = buffer[1] & 0x0F;
-    uint8_t leftX    = filterDeadzone(buffer[2]);
-    uint8_t leftY    = filterDeadzone(buffer[3]);
-    uint8_t rightX   = filterDeadzone(buffer[4]);
-    uint8_t rightY   = filterDeadzone(buffer[5]);
-    uint8_t triggerR = buffer[6];
-    uint8_t triggerL = buffer[7];
-    uint8_t btn1     = buffer[8];
-    uint8_t btn2     = buffer[9];
+    uint8_t dpad = buffer[1] & 0x0F;
+    uint8_t btn1 = buffer[8];
+    uint8_t btn2 = buffer[9];
 
-    // D-Pad Hat Switch (0=상, 1=우상, 2=우, 3=우하, 4=하, 5=좌하, 6=좌, 7=좌상, 8=중립)
-    if (dpad == 7 || dpad == 0 || dpad == 1) controlData.buttons |= SCE_CTRL_UP;
-    if (dpad == 1 || dpad == 2 || dpad == 3) controlData.buttons |= SCE_CTRL_RIGHT;
-    if (dpad == 3 || dpad == 4 || dpad == 5) controlData.buttons |= SCE_CTRL_DOWN;
-    if (dpad == 5 || dpad == 6 || dpad == 7) controlData.buttons |= SCE_CTRL_LEFT;
+    // D-pad
+    if (dpad == DPAD_NW || dpad == DPAD_N || dpad == DPAD_NE) controlData.buttons |= SCE_CTRL_UP;
+    if (dpad == DPAD_NE || dpad == DPAD_E || dpad == DPAD_SE) controlData.buttons |= SCE_CTRL_RIGHT;
+    if (dpad == DPAD_SE || dpad == DPAD_S || dpad == DPAD_SW) controlData.buttons |= SCE_CTRL_DOWN;
+    if (dpad == DPAD_SW || dpad == DPAD_W || dpad == DPAD_NW) controlData.buttons |= SCE_CTRL_LEFT;
 
-    // 전면 버튼 (8BitDo D-Input / SDL 표준 물리 배치에 맞춤)
-    if (btn1 & 0x01) controlData.buttons |= SCE_CTRL_CIRCLE;    // 물리 우측 (A) -> Circle (○)
-    if (btn1 & 0x02) controlData.buttons |= SCE_CTRL_CROSS;     // 물리 하단 (B) -> Cross (✕)
-    if (btn1 & 0x08) controlData.buttons |= SCE_CTRL_TRIANGLE;  // 물리 상단 (X) -> Triangle (△)
-    if (btn1 & 0x10) controlData.buttons |= SCE_CTRL_SQUARE;    // 물리 좌측 (Y) -> Square (□)
+    // Face buttons (by physical position)
+    if (btn1 & 0x02) controlData.buttons |= SCE_CTRL_CROSS;    // bottom
+    if (btn1 & 0x01) controlData.buttons |= SCE_CTRL_CIRCLE;   // right
+    if (btn1 & 0x10) controlData.buttons |= SCE_CTRL_SQUARE;   // left
+    if (btn1 & 0x08) controlData.buttons |= SCE_CTRL_TRIANGLE; // top
 
-    // 범퍼 (L1 / R1)
+    // Shoulders and triggers
     if (btn1 & 0x40) controlData.buttons |= SCE_CTRL_L1;
     if (btn1 & 0x80) controlData.buttons |= SCE_CTRL_R1;
+    if (btn2 & 0x01) controlData.buttons |= SCE_CTRL_LTRIGGER;
+    if (btn2 & 0x02) controlData.buttons |= SCE_CTRL_RTRIGGER;
 
-    // 트리거 (디지털 비트 및 아날로그 트리거 모두 지원)
-    if ((btn2 & 0x01) || triggerL > 30) controlData.buttons |= SCE_CTRL_LTRIGGER;
-    if ((btn2 & 0x02) || triggerR > 30) controlData.buttons |= SCE_CTRL_RTRIGGER;
-
-    // 시스템 버튼 및 스틱 클릭 (L3 / R3)
+    // System buttons and stick clicks
     if (btn2 & 0x04) controlData.buttons |= SCE_CTRL_SELECT;
     if (btn2 & 0x08) controlData.buttons |= SCE_CTRL_START;
     if (btn2 & 0x10) controlData.buttons |= SCE_CTRL_PSBUTTON;
     if (btn2 & 0x20) controlData.buttons |= SCE_CTRL_L3;
     if (btn2 & 0x40) controlData.buttons |= SCE_CTRL_R3;
 
-    // 아날로그 스틱 (128 중립 필터 적용)
-    controlData.leftX  = leftX;
-    controlData.leftY  = leftY;
-    controlData.rightX = rightX;
-    controlData.rightY = rightY;
-
-    // 배터리 잔량 보고 (14번째 바이트)
-    if (length >= 15)
-    {
-        uint8_t batt = buffer[14] & 0x7F;
-        if (batt > 0 && batt <= 100)
-            batteryLevel = (batt * 5) / 100;
-    }
+    // Sticks
+    controlData.leftX  = filterDeadzone(buffer[2]);
+    controlData.leftY  = filterDeadzone(buffer[3]);
+    controlData.rightX = filterDeadzone(buffer[4]);
+    controlData.rightY = filterDeadzone(buffer[5]);
 }

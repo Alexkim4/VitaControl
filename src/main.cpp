@@ -240,7 +240,9 @@ DECL_FUNC_HOOK(sceMotionGetState, SceMotionState *state)
 
 static int bluetoothCallback(int notifyId, int notifyCount, int notifyArg, void *common)
 {
-    static uint8_t buffer[0x100];
+    // One input buffer per controller slot, so simultaneous controllers don't overwrite each other's reports
+    static uint8_t buffers[MAX_CONTROLLERS][0x100];
+    const size_t bufferSize = sizeof(buffers[0]);
 
     SceBtEvent event;
 
@@ -290,6 +292,8 @@ static int bluetoothCallback(int notifyId, int notifyCount, int notifyArg, void 
             return 0;
     }
 
+    uint8_t *buffer = buffers[cont];
+
     // Handle the bluetooth event
     switch (event.id)
     {
@@ -312,8 +316,8 @@ static int bluetoothCallback(int notifyId, int notifyCount, int notifyArg, void 
             if (controllers[cont])
             {
                 // Process the received input report and request another
-                controllers[cont]->processReport(buffer, sizeof(buffer));
-                controllers[cont]->requestReport(HID_REQUEST_READ, buffer, sizeof(buffer));
+                controllers[cont]->processReport(buffer, bufferSize);
+                controllers[cont]->requestReport(HID_REQUEST_READ, buffer, bufferSize);
 
                 // Keep the screen awake when inputs are pressed
                 const ControlData *c = controllers[cont]->getControlData();
@@ -328,7 +332,7 @@ static int bluetoothCallback(int notifyId, int notifyCount, int notifyArg, void 
         case 0x0C: // Reply to feature request
             // Request an initial input report (write/feature requests are typically part of controller init)
             if (controllers[cont])
-                controllers[cont]->requestReport(HID_REQUEST_READ, buffer, sizeof(buffer));
+                controllers[cont]->requestReport(HID_REQUEST_READ, buffer, bufferSize);
             break;
     }
 
