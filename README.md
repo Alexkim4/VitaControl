@@ -1,4 +1,4 @@
-# VitaControl
+# VitaControl modded for 8bitdo pro3 - D mode
 Use bluetooth controllers on your Vita!
 
 ### Overview
