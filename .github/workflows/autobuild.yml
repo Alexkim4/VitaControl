@@ -3,7 +3,7 @@ name: Build VitaControl
 on:
   push:
     branches: [ master, main ]
-  workflow_dispatch: # 언제든 수동으로 실행 가능하도록 활성화
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,23 +13,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install VitaSDK
+    - name: Build with VitaSDK Docker
       run: |
-        git clone https://github.com/vitasdk/vdpm
-        cd vdpm
-        ./bootstrap-vitasdk.sh
-        ./install-all.sh
-      env:
-        VITASDK: /usr/local/vitasdk
-
-    - name: Compile
-      run: |
-        mkdir -p build
-        cd build
-        cmake ..
-        make -j$(nproc)
-      env:
-        VITASDK: /usr/local/vitasdk
+        docker run --rm -v ${{ github.workspace }}:/work -w /work vitasdk/vitasdk:latest bash -c "
+          vdpm taihen &&
+          mkdir -p build &&
+          cd build &&
+          cmake .. &&
+          make -j\$(nproc) &&
+          chmod 777 vitacontrol.skprx
+        "
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
