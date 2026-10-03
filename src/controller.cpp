@@ -1,5 +1,5 @@
 #include <psp2kern/ctrl.h>
-#include "eightbitdo_controller.h"
+#include "controllers/eightbitdo_controller.h"
 
 static inline uint8_t filterDeadzone(uint8_t val)
 {
