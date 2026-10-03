@@ -3,33 +3,34 @@
 
 #include "../controller.h"
 
-struct EightBitDoDInputReport
+// 8BitDo Bluetooth HID Report Layout (Pro 2, Pro 3, SN30 Pro in D-Input / Bluetooth mode)
+struct EightBitDoReport0x01
 {
-    uint8_t leftX;
-    uint8_t leftY;
-    uint8_t rightX;
-    uint8_t rightY;
+    uint8_t reportId; // 0x01
+    uint8_t dpad;     // Hat Switch (0=Up, 1=NE, 2=Right, 3=SE, 4=Down, 5=SW, 6=Left, 7=NW, 8=Neutral)
+    uint8_t leftX;    // 0..255 (Center ~128)
+    uint8_t leftY;    // 0..255 (Center ~128)
+    uint8_t rightX;   // 0..255 (Center ~128)
+    uint8_t rightY;   // 0..255 (Center ~128)
+    uint8_t triggerR; // 0..255 (Analog RT)
+    uint8_t triggerL; // 0..255 (Analog LT)
 
-    uint8_t dpad : 4;  // Hat Switch (0~7: 방향, 8/15: 중립)
-    uint8_t      : 4;
+    uint8_t cross    : 1; // South (B button)
+    uint8_t circle   : 1; // East (A button)
+    uint8_t paddleR  : 1; // PR
+    uint8_t square   : 1; // West (Y button)
+    uint8_t triangle : 1; // North (X button)
+    uint8_t paddleL  : 1; // PL
+    uint8_t l1       : 1; // L1 bumper
+    uint8_t r1       : 1; // R1 bumper
 
-    uint8_t a  : 1;    // Button 1 (A)
-    uint8_t b  : 1;    // Button 2 (B)
-    uint8_t    : 1;
-    uint8_t x  : 1;    // Button 4 (X)
-    uint8_t y  : 1;    // Button 5 (Y)
-    uint8_t    : 1;
-    uint8_t l1 : 1;    // Button 7 (L1)
-    uint8_t r1 : 1;    // Button 8 (R1)
-
-    uint8_t l2     : 1;// Button 9 (L2)
-    uint8_t r2     : 1;// Button 10 (R2)
-    uint8_t select : 1;// Button 11 (Select)
-    uint8_t start  : 1;// Button 12 (Start)
-    uint8_t home   : 1;// Button 13 (PS 버튼)
-    uint8_t stickL : 1;// Button 14 (L3)
-    uint8_t stickR : 1;// Button 15 (R3)
-    uint8_t        : 1;
+    uint8_t          : 2;
+    uint8_t select   : 1; // Select / Back / Minus
+    uint8_t start    : 1; // Start / Plus
+    uint8_t home     : 1; // Home / Guide / PS button
+    uint8_t l3       : 1; // Left stick click
+    uint8_t r3       : 1; // Right stick click
+    uint8_t          : 1;
 }
 __attribute__((packed));
 
