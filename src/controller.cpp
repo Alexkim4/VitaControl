@@ -9,6 +9,7 @@
 #include "controllers/xbox_one_controller.h"
 #include "controllers/xbox_one_controller_2016.h"
 #include "controllers/switch_pro_controller.h"
+#include "controllers/eightbitdo_controller.h"
 
 inline void* operator new(std::size_t, void* __p) throw() { return __p; }
 
@@ -20,6 +21,11 @@ Controller *Controller::makeController(uint32_t mac0, uint32_t mac1, int port)
     // Get the VID and PID of the device with the given MAC address
     uint16_t id[2];
     ksceBtGetVidPid(mac0, mac1, id);
+    // 8BitDo D-mode (VID: 0x2DC8) 인식 추가
+    if (id[0] == 0x2DC8)
+    {
+        return new(Mempool::alloc(sizeof(EightBitDoController))) EightBitDoController(mac0, mac1, port);
+    }
 
     // Match the VID and PID to a controller type, and create one if it exists
     switch ((id[0] << 16) | id[1])
